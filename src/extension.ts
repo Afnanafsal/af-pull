@@ -8,14 +8,14 @@ export function activate(context: vscode.ExtensionContext) {
   outputChannel.show(true);
   outputChannel.appendLine('✅ AF-Pull extension activated...');
 
-  // Create and show status bar item
+  // Status Bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = '🕒 Last Pulled: Never';
   statusBarItem.tooltip = 'AF-Pull - Git Auto Pull Bot';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // Register afpull.pullNow only if not already registered
+  // Pull Now Command
   vscode.commands.getCommands().then((commands) => {
     if (!commands.includes('afpull.pullNow')) {
       const pullNowCommand = vscode.commands.registerCommand('afpull.pullNow', () => {
@@ -27,10 +27,88 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // Commit + Push Command
+  const commitPushWithPull = vscode.commands.registerCommand('afpull.commitPushWithPull', async () => {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.window.showErrorMessage('❌ No workspace folder open.');
+      return;
+    }
+
+    const cwd = workspaceFolders[0].uri.fsPath;
+    const timestamp = new Date().toLocaleTimeString();
+
+    // Git Fetch
+    exec('git fetch', { cwd }, (fetchErr) => {
+      if (fetchErr) {
+        vscode.window.showErrorMessage(`❌ Fetch failed: ${fetchErr.message}`);
+        return;
+      }
+
+      // Check if branch is behind
+      exec('git status -uno', { cwd }, async (statusErr, stdout) => {
+        if (statusErr) {
+          vscode.window.showErrorMessage(`❌ Status failed: ${statusErr.message}`);
+          return;
+        }
+
+        const isBehind = stdout.includes('Your branch is behind');
+
+        const proceed = async () => {
+          const commitMsg = await vscode.window.showInputBox({
+            prompt: 'Enter commit message',
+            placeHolder: 'Fix bug / Add feature...',
+          });
+
+          if (!commitMsg) {
+            vscode.window.showWarningMessage('⚠️ Commit cancelled (no message entered).');
+            return;
+          }
+
+          exec(`git commit -am "${commitMsg}"`, { cwd }, (commitErr, commitOut) => {
+            if (commitErr) {
+              vscode.window.showErrorMessage(`❌ Commit failed: ${commitErr.message}`);
+              return;
+            }
+
+            outputChannel.appendLine(`✅ Committed:\n${commitOut}`);
+
+            exec('git push', { cwd }, (pushErr, pushOut) => {
+              if (pushErr) {
+                vscode.window.showErrorMessage(`❌ Push failed: ${pushErr.message}`);
+                return;
+              }
+
+              vscode.window.showInformationMessage('🚀 Push Successful!');
+              outputChannel.appendLine(`🚀 Pushed:\n${pushOut}`);
+            });
+          });
+        };
+
+        if (isBehind) {
+          vscode.window.showInformationMessage('🔄 Pulling before commit...');
+          exec('git pull --rebase', { cwd }, (pullErr, pullOut) => {
+            if (pullErr) {
+              vscode.window.showErrorMessage(`❌ Pull failed (check for conflicts): ${pullErr.message}`);
+              return;
+            }
+
+            outputChannel.appendLine(`✅ Pulled before commit:\n${pullOut}`);
+            proceed();
+          });
+        } else {
+          proceed();
+        }
+      });
+    });
+  });
+
+  context.subscriptions.push(commitPushWithPull);
+
   // Auto pull every 2 minutes
   setInterval(() => {
     autoPull(outputChannel);
-  }, 2 * 60 * 1000); // 2 minutes
+  }, 2 * 60 * 1000); // every 2 minutes
 }
 
 function autoPull(outputChannel: vscode.OutputChannel) {
@@ -43,14 +121,12 @@ function autoPull(outputChannel: vscode.OutputChannel) {
   const cwd = workspaceFolders[0].uri.fsPath;
   const timestamp = new Date().toLocaleTimeString();
 
-  // Fetch updates
   exec('git fetch', { cwd }, (fetchErr) => {
     if (fetchErr) {
       outputChannel.appendLine(`❌ ${timestamp} - Fetch failed: ${fetchErr.message}`);
       return;
     }
 
-    // Check if local branch is behind
     exec('git status -uno', { cwd }, (statusErr, stdout) => {
       if (statusErr) {
         outputChannel.appendLine(`❌ ${timestamp} - Status check failed: ${statusErr.message}`);
@@ -59,19 +135,15 @@ function autoPull(outputChannel: vscode.OutputChannel) {
 
       if (stdout.includes('Your branch is behind')) {
         outputChannel.appendLine(`🔄 ${timestamp} - Remote changes detected. Pulling...`);
-
-        exec('git pull --rebase', { cwd }, (pullErr, pullOut, pullErrOut) => {
+        exec('git pull --rebase', { cwd }, (pullErr, pullOut) => {
           if (pullErr) {
             outputChannel.appendLine(`❌ Pull Error: ${pullErr.message}`);
             return;
           }
-          if (pullErrOut) {
-            outputChannel.appendLine(`⚠️ Pull Stderr: ${pullErrOut}`);
-          }
 
           const pulledTime = new Date().toLocaleTimeString();
           updateStatusBar(pulledTime);
-          outputChannel.appendLine(`✅ Pulled successfully at ${pulledTime}:\n${pullOut}`);
+          outputChannel.appendLine(`✅ Pulled at ${pulledTime}:\n${pullOut}`);
         });
       } else {
         outputChannel.appendLine(`✅ ${timestamp} - Already up to date.`);
@@ -87,10 +159,7 @@ function updateStatusBar(time: string) {
   statusBarItem.show();
   setTimeout(() => {
     statusBarItem.hide();
-  }
-  , 5000); // Hide after 5 seconds
+  }, 5000);
 }
 
-
 export function deactivate() {}
-
