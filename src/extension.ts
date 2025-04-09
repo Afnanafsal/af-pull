@@ -1,175 +1,151 @@
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
+import { promisify } from 'util';
+import player from 'play-sound';
 
+const execPromise = promisify(exec);
 let statusBarItem: vscode.StatusBarItem;
+const soundPlayer = player();
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 5000;
 
 export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel('AF-Pull');
+  outputChannel.appendLine('✅ AF-Pull activated...');
   outputChannel.show(true);
-  outputChannel.appendLine('✅ AF-Pull extension activated...');
 
-  // Status Bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = '🕒 Last Pulled: Never';
   statusBarItem.tooltip = 'AF-Pull - Git Auto Pull Bot';
+  statusBarItem.command = 'afpull.pullNow';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // Pull Now Command
-  vscode.commands.getCommands().then((commands) => {
-    if (!commands.includes('afpull.pullNow')) {
-      const pullNowCommand = vscode.commands.registerCommand('afpull.pullNow', () => {
-        autoPull(outputChannel);
-      });
-      context.subscriptions.push(pullNowCommand);
-    } else {
-      outputChannel.appendLine('⚠️ Command "afpull.pullNow" already exists. Skipping registration.');
-    }
-  });
+  context.subscriptions.push(
+    vscode.commands.registerCommand('afpull.pullNow', () => autoPull(outputChannel))
+  );
 
-  // Commit + Push Command (with pre-commit pull)
-  const smartCommitPush = vscode.commands.registerCommand('afpull.commitPushWithPull', async () => {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      vscode.window.showErrorMessage('❌ No workspace folder open.');
+  setInterval(() => autoPull(outputChannel), 2 * 60 * 1000); // Every 2 minutes
+}
+
+async function autoPull(outputChannel: vscode.OutputChannel) {
+  const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!cwd) return;
+
+  const timestamp = new Date().toLocaleTimeString();
+  const workingFile = vscode.window.activeTextEditor?.document.uri.fsPath;
+
+  try {
+    await execPromise('git fetch', { cwd });
+
+    const { stdout: statusOut } = await execPromise('git status -uno', { cwd });
+
+    if (!statusOut.includes('Your branch is behind')) {
+      updateStatusBar(timestamp);
+      outputChannel.appendLine(`✅ ${timestamp} - Repository is up to date.`);
       return;
     }
 
-    const cwd = workspaceFolders[0].uri.fsPath;
+    outputChannel.appendLine(`🔄 ${timestamp} - Remote changes detected. Pulling...`);
 
-    // Step 1: Fetch and check status
-    exec('git fetch', { cwd }, (fetchErr) => {
-      if (fetchErr) {
-        vscode.window.showErrorMessage(`❌ Fetch failed: ${fetchErr.message}`);
-        return;
-      }
+    const { stdout: localStatusOut } = await execPromise('git status --porcelain', { cwd });
 
-      exec('git status -uno', { cwd }, async (statusErr, stdout) => {
-        if (statusErr) {
-          vscode.window.showErrorMessage(`❌ Status check failed: ${statusErr.message}`);
-          return;
-        }
-
-        const isBehind = stdout.includes('Your branch is behind');
-
-        if (isBehind) {
-          const pullChoice = await vscode.window.showWarningMessage(
-            '📥 Your branch is behind. Pull before committing?',
-            'Pull Now',
-            'Cancel'
-          );
-
-          if (pullChoice === 'Pull Now') {
-            exec('git pull --rebase', { cwd }, (pullErr, pullOut) => {
-              if (pullErr) {
-                vscode.window.showErrorMessage(`❌ Pull failed: ${pullErr.message}`);
-                outputChannel.appendLine(`❌ Pull Error: ${pullErr.message}`);
-                return;
-              }
-
-              outputChannel.appendLine(`✅ Pulled before commit:\n${pullOut}`);
-              continueToCommit();
-            });
-          } else {
-            vscode.window.showWarningMessage('❌ Commit cancelled (must pull first).');
-            return;
-          }
-        } else {
-          continueToCommit();
-        }
-      });
+    const filesToPull = localStatusOut.split('\n').filter(line => {
+      const file = line.split(' ')[1];
+      return file !== workingFile;
     });
 
-    // Step 2: Commit + Push
-    async function continueToCommit() {
-      const commitMsg = await vscode.window.showInputBox({
-        prompt: 'Enter commit message',
-        placeHolder: 'Fix bug / Add feature...',
-      });
+    if (filesToPull.length > 0) {
+      await handleAutoPull(cwd, outputChannel, timestamp);
 
-      if (!commitMsg) {
-        vscode.window.showWarningMessage('⚠️ Commit cancelled (no message entered).');
-        return;
+      if (filesToPull.some(file => file === workingFile)) {
+        vscode.window.showInformationMessage(`📄 The working file has new changes pulled!`);
       }
-
-      exec(`git commit -am "${commitMsg}"`, { cwd }, (commitErr, commitOut) => {
-        if (commitErr) {
-          vscode.window.showErrorMessage(`❌ Commit failed: ${commitErr.message}`);
-          return;
-        }
-
-        outputChannel.appendLine(`✅ Committed:\n${commitOut}`);
-
-        exec('git push', { cwd }, (pushErr, pushOut) => {
-          if (pushErr) {
-            vscode.window.showErrorMessage(`❌ Push failed: ${pushErr.message}`);
-            return;
-          }
-
-          vscode.window.showInformationMessage('🚀 Push Successful!');
-          outputChannel.appendLine(`🚀 Pushed:\n${pushOut}`);
-        });
-      });
     }
-  });
 
-  context.subscriptions.push(smartCommitPush);
-
-  // Auto pull every 2 minutes
-  setInterval(() => {
-    autoPull(outputChannel);
-  }, 2 * 60 * 1000); // every 2 minutes
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      outputChannel.appendLine(`❌ ${new Date().toLocaleTimeString()} - Git operation failed: ${err.message}`);
+      vscode.window.showErrorMessage(`❌ Git operation failed: ${err.message}`);
+    } else {
+      outputChannel.appendLine(`❌ Unknown error during Git operation.`);
+      vscode.window.showErrorMessage(`❌ Unknown error during Git operation.`);
+    }
+    await retryPull(cwd, outputChannel, new Date().toLocaleTimeString(), err instanceof Error ? err.message : "Unknown error");
+  }
 }
 
-function autoPull(outputChannel: vscode.OutputChannel) {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) {
-    outputChannel.appendLine('❌ No workspace folder open.');
+async function retryPull(cwd: string, outputChannel: vscode.OutputChannel, timestamp: string, lastErrorMessage: string, attempt = 1): Promise<void> {
+  if (attempt > MAX_RETRIES) {
+    outputChannel.appendLine(`❌ Max retries reached. Pull failed.`);
+    vscode.window.showErrorMessage(`❌ Max retries reached. Pull failed.`);
     return;
   }
 
-  const cwd = workspaceFolders[0].uri.fsPath;
-  const timestamp = new Date().toLocaleTimeString();
+  outputChannel.appendLine(`⚠️ Retry ${attempt}/${MAX_RETRIES} after ${RETRY_DELAY_MS / 1000}s delay...`);
+  setTimeout(async () => {
+    try {
+      await execPromise('git pull --rebase', { cwd });
+      outputChannel.appendLine(`✅ Successfully retried pull at ${timestamp}`);
+      vscode.window.showInformationMessage(`✅ Pull succeeded after retry`);
+    } catch (err) {
+      await retryPull(cwd, outputChannel, timestamp, err instanceof Error ? err.message : "Unknown error", attempt + 1);
+    }
+  }, RETRY_DELAY_MS);
+}
 
-  exec('git fetch', { cwd }, (fetchErr) => {
-    if (fetchErr) {
-      outputChannel.appendLine(`❌ ${timestamp} - Fetch failed: ${fetchErr.message}`);
-      return;
+async function handleAutoPull(cwd: string, outputChannel: vscode.OutputChannel, timestamp: string) {
+  try {
+    // Check for unstaged changes
+    const { stdout: status } = await execPromise('git status --porcelain', { cwd });
+
+    if (status.includes(' M ')) {
+      // Stash changes if there are unstaged changes
+      outputChannel.appendLine(`⚠️ Unstaged changes detected. Stashing changes...`);
+      const stashResult = await execPromise('git stash -u save "Auto stashed changes by AF-Pull"', { cwd });
+
+      if (stashResult.stdout.includes('No local changes to save')) {
+        outputChannel.appendLine(`✅ No changes to stash.`);
+      } else {
+        outputChannel.appendLine(`✅ Stashed changes.`);
+      }
+
+      // Perform the pull
+      await execPromise('git pull --rebase', { cwd });
+
+      // Reapply the stashed changes
+      outputChannel.appendLine(`🔄 Reapplying stashed changes...`);
+      await execPromise('git stash pop', { cwd });
+
+      outputChannel.appendLine(`✅ Pulled successfully and reapplied stashed changes at ${timestamp}`);
+      vscode.window.showInformationMessage(`✅ Pull successful with stashed changes reapplied!`);
+
+      // Play success sound
+      soundPlayer.play('media/success.mp3', (err: any) => {
+        if (err) console.log("Error playing sound:", err);
+      });
+    } else {
+      // If no unstaged changes, just perform the pull
+      await execPromise('git pull --rebase', { cwd });
+      outputChannel.appendLine(`✅ Pulled at ${timestamp}`);
+      vscode.window.showInformationMessage(`✅ Pull successful!`);
     }
 
-    exec('git status -uno', { cwd }, (statusErr, stdout) => {
-      if (statusErr) {
-        outputChannel.appendLine(`❌ ${timestamp} - Status check failed: ${statusErr.message}`);
-        return;
-      }
-
-      if (stdout.includes('Your branch is behind')) {
-        outputChannel.appendLine(`🔄 ${timestamp} - Remote changes detected. Pulling...`);
-        exec('git pull --rebase', { cwd }, (pullErr, pullOut) => {
-          if (pullErr) {
-            outputChannel.appendLine(`❌ Pull Error: ${pullErr.message}`);
-            return;
-          }
-
-          const pulledTime = new Date().toLocaleTimeString();
-          updateStatusBar(pulledTime);
-          outputChannel.appendLine(`✅ Pulled at ${pulledTime}:\n${pullOut}`);
-        });
-      } else {
-        outputChannel.appendLine(`✅ ${timestamp} - Already up to date.`);
-        updateStatusBar(timestamp);
-      }
-    });
-  });
+  } catch (err) {
+    if (err instanceof Error) {
+      outputChannel.appendLine(`❌ Pull Error: ${err.message}`);
+      vscode.window.showErrorMessage(`❌ Pull failed: ${err.message}`);
+    } else {
+      outputChannel.appendLine(`❌ Pull Error: Unknown error.`);
+      vscode.window.showErrorMessage(`❌ Pull failed: Unknown error.`);
+    }
+  }
 }
 
 function updateStatusBar(time: string) {
   statusBarItem.text = `🕒 Last Pulled: ${time}`;
-  statusBarItem.tooltip = `AF-Pull - Last pulled at ${time}`;
   statusBarItem.show();
-  setTimeout(() => {
-    statusBarItem.hide();
-  }, 5000);
 }
 
 export function deactivate() {}

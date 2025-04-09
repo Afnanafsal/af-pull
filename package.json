@@ -1,18 +1,17 @@
 {
   "name": "af-pull",
   "displayName": "AF-Pull",
-  "description": "A smart Git auto-pull bot for VS Code by Afnan Afsal. Keeps your workspace up to date every 2 minutes, with status bar indicaator. + pre-push pull protection.",
-  "version": "1.1.1",
+  "description": "A smart Git auto-pull & commit assistant by Afnan Afsal. Keeps your workspace updated, prevents conflicts, and handles pull-rebase before commit. Auto detects upstream changes to currently edited files.",
+  "version": "1.3.0",
   "publisher": "afnanafsal",
   "engines": {
     "vscode": "^1.75.0"
   },
-"categories": [
-  "SCM Providers",
-  "Other",
-  "Snippets",
-  "Git"
-],
+  "categories": [
+    "SCM Providers",
+    "Other",
+    "Snippets"
+  ],
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -26,6 +25,10 @@
       {
         "command": "afpull.commitPushWithPull",
         "title": "AF-Pull: Commit & Push (Pull First)"
+      },
+      {
+        "command": "afpull.checkStatus",
+        "title": "AF-Pull: Check Git Status"
       }
     ]
   },
@@ -37,9 +40,9 @@
   "devDependencies": {
     "@types/mocha": "^10.0.0",
     "@types/node": "^18.0.0",
+    "@types/play-sound": "^1.1.2",
     "@types/vscode": "^1.70.0",
-    "typescript": "^5.0.0",
-    "vscode": "^1.1.38"
+    "typescript": "^5.0.0"
   },
   "repository": {
     "type": "git",
@@ -52,23 +55,26 @@
   "keywords": [
     "git",
     "auto-pull",
-    "afnnafsal",
+    "afnanafsal",
     "afnan",
     "af-pull",
     "git-pull",
     "git-auto-pull",
-    "git-bot",
-    "git-auto-pull-bot",
-    "code",
+    "auto commit",
+    "pull-rebase",
+    "conflict-check",
+    "live file monitor",
+    "status bar git",
+    "git protection",
+    "vscode-extension",
+    "afpull",
     "bot",
-    "afnanafsal",
-    "github",
-    "pull",
-    "pull-request",
-    "pre",
-    "automation",
-    "vscode"
+    "team-code",
+    "git sync"
   ],
   "icon": "media/icon.png",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "play-sound": "^1.1.6"
+  }
 }
