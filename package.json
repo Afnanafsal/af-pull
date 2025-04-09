@@ -1,0 +1,68 @@
+{
+  "name": "af-pull",
+  "displayName": "AF-Pull",
+  "description": "A smart Git auto-pull bot for VS Code by Afnan Afsal. Keeps your workspace up to date every 2 minutes, with a status bar indicator.",
+  "version": "1.0.0",
+  "publisher": "afnanafsal",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+"categories": [
+  "Other"
+],
+
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "afpull.pullNow",
+        "title": "AF-Pull: Pull Now"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.70.0",
+    "typescript": "^5.0.0",
+    "vscode": "^1.1.38"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/afnanafsal/af-pull"
+  },
+  "bugs": {
+    "url": "https://github.com/afnanafsal/af-pull/issues"
+  },
+  "homepage": "https://github.com/afnanafsal/af-pull#readme",
+  "keywords": [
+    "git",
+    "auto-pull",
+    "afnnafsal",
+    "afnan",
+    "af-pull",
+    "git-pull",
+    "git-auto-pull",
+    "git-bot",
+    "git-auto-pull-bot",
+    "code",
+    "bot",
+    "afnanafsal",
+    "github",
+    "pull",
+    "pull-request",
+    "pre",
+    "automation",
+    "vscode"
+  ],
+  "icon": "media/icon.png",
+  "license": "MIT"
+}
