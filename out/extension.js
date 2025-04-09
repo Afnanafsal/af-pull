@@ -60,71 +60,77 @@ function activate(context) {
             outputChannel.appendLine('⚠️ Command "afpull.pullNow" already exists. Skipping registration.');
         }
     });
-    // Commit + Push Command
-    const commitPushWithPull = vscode.commands.registerCommand('afpull.commitPushWithPull', async () => {
+    // Commit + Push Command (with pre-commit pull)
+    const smartCommitPush = vscode.commands.registerCommand('afpull.commitPushWithPull', async () => {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
             vscode.window.showErrorMessage('❌ No workspace folder open.');
             return;
         }
         const cwd = workspaceFolders[0].uri.fsPath;
-        const timestamp = new Date().toLocaleTimeString();
-        // Git Fetch
+        // Step 1: Fetch and check status
         (0, child_process_1.exec)('git fetch', { cwd }, (fetchErr) => {
             if (fetchErr) {
                 vscode.window.showErrorMessage(`❌ Fetch failed: ${fetchErr.message}`);
                 return;
             }
-            // Check if branch is behind
             (0, child_process_1.exec)('git status -uno', { cwd }, async (statusErr, stdout) => {
                 if (statusErr) {
-                    vscode.window.showErrorMessage(`❌ Status failed: ${statusErr.message}`);
+                    vscode.window.showErrorMessage(`❌ Status check failed: ${statusErr.message}`);
                     return;
                 }
                 const isBehind = stdout.includes('Your branch is behind');
-                const proceed = async () => {
-                    const commitMsg = await vscode.window.showInputBox({
-                        prompt: 'Enter commit message',
-                        placeHolder: 'Fix bug / Add feature...',
-                    });
-                    if (!commitMsg) {
-                        vscode.window.showWarningMessage('⚠️ Commit cancelled (no message entered).');
-                        return;
-                    }
-                    (0, child_process_1.exec)(`git commit -am "${commitMsg}"`, { cwd }, (commitErr, commitOut) => {
-                        if (commitErr) {
-                            vscode.window.showErrorMessage(`❌ Commit failed: ${commitErr.message}`);
-                            return;
-                        }
-                        outputChannel.appendLine(`✅ Committed:\n${commitOut}`);
-                        (0, child_process_1.exec)('git push', { cwd }, (pushErr, pushOut) => {
-                            if (pushErr) {
-                                vscode.window.showErrorMessage(`❌ Push failed: ${pushErr.message}`);
+                if (isBehind) {
+                    const pullChoice = await vscode.window.showWarningMessage('📥 Your branch is behind. Pull before committing?', 'Pull Now', 'Cancel');
+                    if (pullChoice === 'Pull Now') {
+                        (0, child_process_1.exec)('git pull --rebase', { cwd }, (pullErr, pullOut) => {
+                            if (pullErr) {
+                                vscode.window.showErrorMessage(`❌ Pull failed: ${pullErr.message}`);
+                                outputChannel.appendLine(`❌ Pull Error: ${pullErr.message}`);
                                 return;
                             }
-                            vscode.window.showInformationMessage('🚀 Push Successful!');
-                            outputChannel.appendLine(`🚀 Pushed:\n${pushOut}`);
+                            outputChannel.appendLine(`✅ Pulled before commit:\n${pullOut}`);
+                            continueToCommit();
                         });
-                    });
-                };
-                if (isBehind) {
-                    vscode.window.showInformationMessage('🔄 Pulling before commit...');
-                    (0, child_process_1.exec)('git pull --rebase', { cwd }, (pullErr, pullOut) => {
-                        if (pullErr) {
-                            vscode.window.showErrorMessage(`❌ Pull failed (check for conflicts): ${pullErr.message}`);
-                            return;
-                        }
-                        outputChannel.appendLine(`✅ Pulled before commit:\n${pullOut}`);
-                        proceed();
-                    });
+                    }
+                    else {
+                        vscode.window.showWarningMessage('❌ Commit cancelled (must pull first).');
+                        return;
+                    }
                 }
                 else {
-                    proceed();
+                    continueToCommit();
                 }
             });
         });
+        // Step 2: Commit + Push
+        async function continueToCommit() {
+            const commitMsg = await vscode.window.showInputBox({
+                prompt: 'Enter commit message',
+                placeHolder: 'Fix bug / Add feature...',
+            });
+            if (!commitMsg) {
+                vscode.window.showWarningMessage('⚠️ Commit cancelled (no message entered).');
+                return;
+            }
+            (0, child_process_1.exec)(`git commit -am "${commitMsg}"`, { cwd }, (commitErr, commitOut) => {
+                if (commitErr) {
+                    vscode.window.showErrorMessage(`❌ Commit failed: ${commitErr.message}`);
+                    return;
+                }
+                outputChannel.appendLine(`✅ Committed:\n${commitOut}`);
+                (0, child_process_1.exec)('git push', { cwd }, (pushErr, pushOut) => {
+                    if (pushErr) {
+                        vscode.window.showErrorMessage(`❌ Push failed: ${pushErr.message}`);
+                        return;
+                    }
+                    vscode.window.showInformationMessage('🚀 Push Successful!');
+                    outputChannel.appendLine(`🚀 Pushed:\n${pushOut}`);
+                });
+            });
+        }
     });
-    context.subscriptions.push(commitPushWithPull);
+    context.subscriptions.push(smartCommitPush);
     // Auto pull every 2 minutes
     setInterval(() => {
         autoPull(outputChannel);

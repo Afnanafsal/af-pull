@@ -2,14 +2,17 @@
   "name": "af-pull",
   "displayName": "AF-Pull",
   "description": "A smart Git auto-pull bot for VS Code by Afnan Afsal. Keeps your workspace up to date every 2 minutes, with status bar indicaator. + pre-push pull protection.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "afnanafsal",
   "engines": {
     "vscode": "^1.75.0"
   },
-  "categories": [
-    "Other"
-  ],
+"categories": [
+  "SCM Providers",
+  "Other",
+  "Snippets",
+  "Git"
+],
   "activationEvents": [
     "onStartupFinished"
   ],
